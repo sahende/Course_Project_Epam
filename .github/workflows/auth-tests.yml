@@ -1,0 +1,81 @@
+name: Auth feature CI (placeholder)
+
+on:
+  push:
+    branches: [ '001-user-auth', 'main' ]
+  pull_request:
+    branches: [ 'main' ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'push' && github.event.head_commit && github.event.head_commit.author && github.event.head_commit.author.email != 'sahende_simsek@epam.com') ||
+      (github.event_name == 'pull_request' && github.actor != 'sahende-simsek')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run secret scan (gitleaks)
+        uses: zricethezav/gitleaks-action@v1
+        with:
+          args: --path=. --report=gitleaks-report.json
+
+      - name: Start Postgres service
+        uses: harmon758/postgres-action@v1
+        with:
+          postgresql version: '13'
+
+      - name: Set DATABASE_URL
+        run: echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/postgres?schema=public" >> $GITHUB_ENV
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test:unit --silent
+
+      - name: Integration tests
+        run: npm run test:integration --silent
+
+      - name: Contract tests
+        run: npm run test:contract --silent
+
+      - name: Coverage & thresholds
+        # Run full coverage and fail if thresholds are not met
+        run: npm test -- --coverage --coverageThreshold='{"global":{"branches":75,"lines":80}}' --silent
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Start dev server (background)
+        run: |
+          # start local dev server in background for Playwright to exercise
+          nohup node ./scripts/dev-server.js > dev-server.log 2>&1 &
+          echo "started"
+
+      - name: Wait for dev server
+        run: npx wait-on http://localhost:3000 -t 60000
+
+      - name: E2E tests (Playwright)
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          TEST_USE_INMEMORY: '1'
+        run: npm run test:e2e --silent

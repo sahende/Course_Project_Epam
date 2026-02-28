@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  username     String?
+  passwordHash String
+  status       String    @default("active")
+  role         Role      @default(SUBMITTER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  lastLoginAt  DateTime?
+  ideas        Idea[]
+}
+
+model RefreshToken {
+  id            String    @id @default(uuid())
+  tokenId       String    @unique
+  userId        String
+  parentTokenId String?
+  issuedAt      DateTime  @default(now())
+  lastUsedAt    DateTime?
+  expiresAt     DateTime
+  revoked       Boolean   @default(false)
+  ip            String?
+  userAgent     String?
+
+  @@index([userId, expiresAt])
+}
+
+model Idea {
+  id          String       @id @default(cuid())
+  title       String
+  description String
+  category    String
+  status      IdeaStatus   @default(SUBMITTED)
+  authorId    String
+  author      User         @relation(fields: [authorId], references: [id])
+  attachments Attachment[]
+  evaluations Evaluation[]
+  currentStageId String?
+  currentStage   ReviewStage? @relation(fields: [currentStageId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  ideaId    String
+  idea      Idea     @relation(fields: [ideaId], references: [id])
+  filename  String
+  url       String
+  mimetype  String
+  size      Int
+  content   Bytes
+  createdAt DateTime @default(now())
+}
+
+model Evaluation {
+  id          String     @id @default(cuid())
+  ideaId      String
+  idea        Idea       @relation(fields: [ideaId], references: [id])
+  evaluatorId String
+  comments    String
+  decision    IdeaStatus
+  createdAt   DateTime   @default(now())
+}
+
+model Draft {
+  id                 String      @id @default(cuid())
+  ownerUserId        String
+  title              String
+  description        String
+  category           String
+  dynamicFieldValues Json
+  linkedIdeaId       String?
+  status             DraftStatus @default(DRAFT)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  attachments        DraftAttachment[]
+}
+
+model DraftAttachment {
+  id        String   @id @default(cuid())
+  draftId   String
+  draft     Draft    @relation(fields: [draftId], references: [id])
+  filename  String
+  url       String
+  mimetype  String
+  size      Int
+  content   Bytes
+  createdAt DateTime @default(now())
+}
+
+model ReviewStage {
+  id             String        @id @default(cuid())
+  name           String
+  description    String
+  orderIndex     Int
+  isBlind        Boolean       @default(false)
+  assignmentRule String
+  exitRule       String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  stageReviews   StageReview[]
+  ideas          Idea[]
+}
+
+model StageReview {
+  id              String        @id @default(cuid())
+  ideaId          String
+  idea            Idea          @relation(fields: [ideaId], references: [id])
+  stageId         String
+  stage           ReviewStage   @relation(fields: [stageId], references: [id])
+  evaluatorUserId String
+  decision        StageDecision
+  comments        String?
+  scoreOverall    Float?
+  scoreBreakdown  Json?
+  createdAt       DateTime      @default(now())
+
+  @@unique([ideaId, stageId, evaluatorUserId])
+}
+
+enum Role {
+  SUBMITTER
+  EVALUATOR
+}
+
+enum IdeaStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+}
+
+enum DraftStatus {
+  DRAFT
+  SUBMITTED_FROM_DRAFT
+}
+
+enum StageDecision {
+  ADVANCE
+  HOLD
+  REJECT
+}
